@@ -1,1 +1,183 @@
+import csv
+import random
+
+# ======================
+#  BATCH-KLASSE
+# ======================
+
+class Batch:
+    def __init__(self, quantity, cost_per_unit):
+        self.quantity = quantity
+        self.cost_per_unit = cost_per_unit
+
+    def __str__(self):
+        return f"Batch(quantity={self.quantity}, cost_per_unit={self.cost_per_unit})"
+
+
+# ======================
+#  PRODUCT-KLASSE
+# ======================
+
+class Product:
+    def __init__(self, product_name, holding_cost, stockout_penalty):
+        self.product_name = product_name
+        self.batches = []              # stack van batches (LIFO)
+        self.holding_cost = holding_cost
+        self.stockout_penalty = stockout_penalty
+
+    # Voeg een nieuwe batch toe (bovenop de stack)
+    def add_batch(self, quantity, cost_per_unit):
+        self.batches.append(Batch(quantity, cost_per_unit))
+
+    # Gebruik voorraad (LIFO) om de vraag te vervullen.
+    # Returnt de stockout-kost (0 als alles kon geleverd worden).
+    def fulfill_demand(self, demand):
+        remaining = demand
+        while remaining > 0 and self.batches:
+            top = self.batches[-1]
+            if top.quantity > remaining:
+                # batch heeft genoeg
+                top.quantity -= remaining
+                remaining = 0
+            else:
+                # hele batch opgebruikt
+                remaining -= top.quantity
+                self.batches.pop()
+
+        if remaining > 0:
+            # niet alles kon geleverd worden
+            return remaining * self.stockout_penalty
+        return 0
+
+    # Totale holding cost = som over alle batches
+    def calculate_holding_cost(self):
+        total = 0
+        for batch in self.batches:
+            total += batch.quantity * self.holding_cost
+        return total
+
+    # Mooie representatie van één product + zijn batches
+    def __str__(self):
+        lines = [f"Product {self.product_name}:"]
+        for batch in self.batches:
+            lines.append(f"  {batch}")
+        return "\n".join(lines)
+
+
+# ==========================
+#  INVENTORY_MANAGER-KLASSE
+# ==========================
+
+class Inventory_Manager:
+    def __init__(self):
+        # dictionary: product_name -> Product object
+        self.products = {}
+
+    # Voeg nieuw product toe
+    def add_product(self, product_name, holding_cost, stockout_penalty):
+        if product_name in self.products:
+            print(f"Product {product_name} already exists.")
+            return
+        self.products[product_name] = Product(
+            product_name, holding_cost, stockout_penalty
+        )
+
+    # Voeg batch toe aan bestaand product
+    def restock_product(self, product_name, quantity, cost_per_unit):
+        if product_name not in self.products:
+            print(f"Product {product_name} not found")
+            return
+        self.products[product_name].add_batch(quantity, cost_per_unit)
+
+    # Genereer random vraag voor elk product
+    def simulate_demand(self, min_demand=0, max_demand=20):
+        demand = {}
+        for product_name in self.products:
+            demand[product_name] = random.randint(min_demand, max_demand)
+        return demand
+
+    # Simuleer één dag: vraag uitvoeren + kosten optellen
+    def simulate_day(self, demand):
+        total_holding = 0
+        total_stockout = 0
+
+        for product_name, amount in demand.items():
+            product = self.products[product_name]
+
+            # vraag uitvoeren (LIFO over batches)
+            stockout_cost = product.fulfill_demand(amount)
+            total_stockout += stockout_cost
+
+            # holding cost na de vraag
+            total_holding += product.calculate_holding_cost()
+
+        return total_holding, total_stockout
+
+    # Sla alle batches op in een CSV-bestand
+    def save_to_csv(self, filename):
+        with open(filename, "w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["product_name", "batch_quantity", "batch_cost_per_unit"])
+
+            for product_name, product in self.products.items():
+                for batch in product.batches:
+                    writer.writerow([product_name, batch.quantity, batch.cost_per_unit])
+
+    # Laad batches uit CSV
+    def load_from_csv(self, filename):
+        with open(filename, newline="") as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                name = row["product_name"]
+                qty = int(row["batch_quantity"])
+                cpu = float(row["batch_cost_per_unit"])
+
+                # product aanmaken als het nog niet bestaat
+                if name not in self.products:
+                    # hier kies ik wat default-waarden voor holding/stockout
+                    self.add_product(name, holding_cost=1.0, stockout_penalty=5.0)
+
+                self.products[name].add_batch(qty, cpu)
+
+    # Print hele voorraad
+    def print_inventory(self):
+        print("Current Inventory:")
+        for product in self.products.values():
+            print()
+            print(product)
+
+
+# ======================
+#  KLEINE TEST-MAIN
+# ======================
+
+def main():
+    inv = Inventory_Manager()
+
+    # twee producten toevoegen
+    inv.add_product("Widget", holding_cost=1.0, stockout_penalty=5.0)
+    inv.add_product("Gadget", holding_cost=0.5, stockout_penalty=3.0)
+
+    # batches toevoegen
+    inv.restock_product("Widget", 100, 2.5)
+    inv.restock_product("Widget", 50, 2.0)
+    inv.restock_product("Gadget", 70, 3.0)
+
+    inv.print_inventory()
+
+    # vraag simuleren
+    demand = inv.simulate_demand(min_demand=0, max_demand=20)
+    print("\nSimulated demand:", demand)
+
+    holding, stockout = inv.simulate_day(demand)
+    print(f"\nTotal holding cost: {holding}")
+    print(f"Total stockout cost: {stockout}")
+
+    # opslaan naar CSV
+    inv.save_to_csv("inventory_output.csv")
+    print("\nInventory saved to inventory_output.csv")
+
+
+if __name__ == "__main__":
+    main()
 
